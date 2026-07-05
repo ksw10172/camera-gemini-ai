@@ -1,1 +1,331 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1">
 
+<title>Camera Gemini AI</title>
+
+<style>
+body{
+  margin:0;
+  background:#111827;
+  color:white;
+  font-family:Arial,sans-serif;
+}
+
+.container{
+  padding:15px;
+}
+
+h2{
+  text-align:center;
+  margin:10px 0 15px;
+}
+
+video{
+  width:100%;
+  border-radius:15px;
+  background:black;
+}
+
+button{
+  width:100%;
+  padding:15px;
+  margin-top:10px;
+  border:none;
+  border-radius:12px;
+  font-size:16px;
+  font-weight:bold;
+  cursor:pointer;
+}
+
+.start{
+  background:#22c55e;
+  color:#052e16;
+}
+
+.analyze{
+  background:#3b82f6;
+  color:white;
+}
+
+.auto{
+  background:#f97316;
+  color:white;
+}
+
+#result{
+  margin-top:15px;
+  background:#1f2937;
+  padding:15px;
+  border-radius:12px;
+  min-height:150px;
+  white-space:pre-wrap;
+  line-height:1.5;
+}
+
+.note{
+  font-size:12px;
+  color:#cbd5e1;
+  margin-top:8px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h2>📷 Camera Gemini AI</h2>
+
+<video
+  id="video"
+  autoplay
+  playsinline
+  muted>
+</video>
+
+<canvas
+  id="canvas"
+  style="display:none;">
+</canvas>
+
+<button
+  class="start"
+  onclick="startCamera()">
+  Start Camera
+</button>
+
+<button
+  class="analyze"
+  onclick="captureAndAnalyze()">
+  Analyze Current Screen
+</button>
+
+<button
+  id="autoBtn"
+  class="auto"
+  onclick="toggleAuto()">
+  Auto Analyze OFF
+</button>
+
+<div class="note">
+15초마다 자동 분석합니다.
+</div>
+
+<div id="result">
+결과가 여기에 표시됩니다.
+</div>
+
+</div>
+
+<script>
+
+const APPS_SCRIPT_URL =
+'https://script.google.com/macros/s/AKfycbzsi7qp9tR7Xbrk3rJPyXq0y__OMISv8nD9VMgE8dpvN-2w43jHBpDec5-xN0ca3Ic1fQ/exec';
+
+let stream = null;
+let autoTimer = null;
+let autoRunning = false;
+let isAnalyzing = false;
+
+async function startCamera(){
+
+  const result =
+    document.getElementById('result');
+
+  try{
+
+    stream =
+      await navigator.mediaDevices.getUserMedia({
+        video:{
+          facingMode:{
+            ideal:'environment'
+          }
+        },
+        audio:false
+      });
+
+    document.getElementById('video')
+      .srcObject = stream;
+
+    result.innerText =
+      '카메라가 켜졌습니다.';
+
+  }
+  catch(err){
+
+    result.innerText =
+      '카메라 오류\n\n' +
+      err.name +
+      '\n' +
+      err.message;
+  }
+}
+
+function getImageBase64(){
+
+  const video =
+    document.getElementById('video');
+
+  if(!video.videoWidth){
+    throw new Error(
+      '카메라가 준비되지 않았습니다.'
+    );
+  }
+
+  const canvas =
+    document.getElementById('canvas');
+
+  const width = 900;
+
+  const ratio =
+    video.videoHeight /
+    video.videoWidth;
+
+  canvas.width = width;
+  canvas.height =
+    Math.round(width * ratio);
+
+  const ctx =
+    canvas.getContext('2d');
+
+  ctx.drawImage(
+    video,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  const data =
+    canvas.toDataURL(
+      'image/jpeg',
+      0.7
+    );
+
+  return data.split(',')[1];
+}
+
+async function captureAndAnalyze(){
+
+  if(isAnalyzing){
+    return;
+  }
+
+  isAnalyzing = true;
+
+  const result =
+    document.getElementById('result');
+
+  result.innerText =
+    '분석 중...';
+
+  try{
+
+    const image =
+      getImageBase64();
+
+    const response =
+      await fetch(
+        APPS_SCRIPT_URL,
+        {
+          method:'POST',
+          headers:{
+            'Content-Type':
+              'text/plain;charset=utf-8'
+          },
+          body:JSON.stringify({
+            image:image
+          })
+        }
+      );
+
+    const data =
+      await response.json();
+
+    if(!data.success){
+      throw new Error(
+        data.error
+      );
+    }
+
+    result.innerText =
+      data.answer;
+
+    speak(data.answer);
+
+  }
+  catch(err){
+
+    result.innerText =
+      '오류\n\n' +
+      err.message;
+  }
+  finally{
+    isAnalyzing = false;
+  }
+}
+
+function toggleAuto(){
+
+  const btn =
+    document.getElementById('autoBtn');
+
+  if(!autoRunning){
+
+    autoRunning = true;
+
+    btn.innerText =
+      'Auto Analyze ON';
+
+    captureAndAnalyze();
+
+    autoTimer =
+      setInterval(
+        captureAndAnalyze,
+        15000
+      );
+  }
+  else{
+
+    autoRunning = false;
+
+    btn.innerText =
+      'Auto Analyze OFF';
+
+    clearInterval(
+      autoTimer
+    );
+  }
+}
+
+function speak(text){
+
+  if(
+    !window.speechSynthesis
+  ){
+    return;
+  }
+
+  const msg =
+    new SpeechSynthesisUtterance(
+      text.substring(0,300)
+    );
+
+  msg.lang = 'ko-KR';
+
+  window.speechSynthesis.cancel();
+
+  window.speechSynthesis.speak(
+    msg
+  );
+}
+
+</script>
+
+</body>
+</html>
